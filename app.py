@@ -175,12 +175,14 @@ def me():
 @app.route("/analyze", methods=["POST"])
 @login_required
 def analyze():
-    """
-    Upload a resume file (PDF / DOCX / TXT), analyse with Groq,
-    save result to DB, and return JSON.
-    """
+    # ── Check file ────────────────────────────
     if "resume" not in request.files:
-        return jsonify({"status": "error", "message": "No file uploaded — field name must be 'resume'"}), 400
+        return jsonify({
+            "status": "error",
+            "message": "No file uploaded — field name must be 'resume'",
+            "received_fields": list(request.files.keys()),
+            "received_form":   list(request.form.keys()),
+        }), 400
 
     file = request.files["resume"]
 
@@ -200,24 +202,35 @@ def analyze():
     try:
         resume_text = extract_text(save_path)
     except (ValueError, ImportError) as e:
-        os.remove(save_path)
+        try:
+            os.remove(save_path)
+        except OSError:
+            pass
         return jsonify({"status": "error", "message": str(e)}), 422
 
     # ── AI analysis ───────────────────────────
-    result = analyze_resume(resume_text)
+    try:
+        result = analyze_resume(resume_text)
+    except Exception as e:
+        logger.error("AI analysis error: %s", e, exc_info=True)
+        return jsonify({"status": "error", "message": f"AI analysis failed: {str(e)}"}), 500
 
     # ── Persist to DB ─────────────────────────
-    analysis_id = db.save_analysis(
-        user_id    = session["user_id"],
-        filename   = filename,
-        career     = result["career"],
-        skills     = result["skills"],
-        roadmap    = result["roadmap"],
-        courses    = result["courses"],
-        raw_output = result.get("raw", ""),
-    )
+    try:
+        analysis_id = db.save_analysis(
+            user_id    = session["user_id"],
+            filename   = filename,
+            career     = result["career"],
+            skills     = result["skills"],
+            roadmap    = result["roadmap"],
+            courses    = result["courses"],
+            raw_output = result.get("raw", ""),
+        )
+    except Exception as e:
+        logger.error("DB save error: %s", e, exc_info=True)
+        return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
 
-    # Clean up temp file
+    # ── Clean up temp file ────────────────────
     try:
         os.remove(save_path)
     except OSError:
@@ -231,7 +244,6 @@ def analyze():
         "roadmap":     result["roadmap"],
         "courses":     result["courses"],
     })
-
 
 # ─────────────────────────────────────────────
 # History
