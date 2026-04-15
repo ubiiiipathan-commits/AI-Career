@@ -49,15 +49,7 @@ app.config.update(
 UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# ── CORS ──────────────────────────────────────
-CORS(
-    app,
-    supports_credentials=True,
-    origins=[
-        "http://localhost:8080",
-        "https://compassai-mu.vercel.app"
-    ]
-)
+
 # ── Initialise DB ─────────────────────────────
 with app.app_context():
     try:
@@ -94,70 +86,35 @@ def home():
 
 @app.route("/register", methods=["POST"])
 def register():
-    data = request.get_json(silent=True)
-    if not data:
-        return jsonify({"status": "error", "message": "JSON body required"}), 400
+    data = request.get_json()
+    username = data.get("username")
+    email = data.get("email")
+    password = data.get("password")
 
-    username = data.get("username", "").strip()
-    email    = data.get("email",    "").strip().lower()
-    password = data.get("password", "")
-    confirm  = data.get("confirm_password", "")
-
-    if not all([username, email, password]):
-        return jsonify({"status": "error", "message": "username, email and password are required"}), 400
-    if password != confirm:
-        return jsonify({"status": "error", "message": "Passwords do not match"}), 400
-    if len(password) < 6:
-        return jsonify({"status": "error", "message": "Password must be at least 6 characters"}), 400
     if db.email_exists(email):
-        return jsonify({"status": "error", "message": "Email already registered"}), 409
+        return jsonify({"status": "error", "message": "Email exists"}), 409
 
-    hashed  = generate_password_hash(password)
-    user_id = db.create_user(username, email, hashed)
-
-    session.permanent     = True
-    session["user_id"]    = user_id
-    session["username"]   = username
-    session["user_email"] = email  # ← store email in session too
-
+    user_id = db.create_user(username, email, generate_password_hash(password))
+    
     return jsonify({
-        "status":  "success",
-        "message": "Account created successfully",
+        "status": "success",
         "user": {"id": user_id, "username": username, "email": email}
-    }), 201
-
+    }), 201 
 
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.get_json(silent=True)
-    if not data:
-        return jsonify({"status": "error", "message": "JSON body required"}), 400
-
-    email    = data.get("email",    "").strip().lower()
-    password = data.get("password", "")
-
-    if not email or not password:
-        return jsonify({"status": "error", "message": "Email and password are required"}), 400
+    data = request.get_json()
+    email = data.get("email")
+    password = data.get("password")
 
     user = db.get_user_by_email(email)
     if user and check_password_hash(user["password_hash"], password):
-        session.permanent     = True
-        session["user_id"]    = user["id"]
-        session["username"]   = user["username"]
-        session["user_email"] = user["email"]  # ← store email in session
-
         return jsonify({
-            "status":  "success",
-            "message": "Login successful",
-            "user": {
-                "id":       user["id"],
-                "username": user["username"],
-                "email":    user["email"],
-            }
+            "status": "success",
+            "user": {"id": user["id"], "username": user["username"], "email": user["email"]}
         })
 
-    return jsonify({"status": "error", "message": "Invalid email or password"}), 401
-
+    return jsonify({"status": "error", "message": "Invalid credentials"}), 401
 
 @app.route("/logout", methods=["POST"])
 @login_required
@@ -318,10 +275,5 @@ def internal_error(e):
     return jsonify({"status": "error", "message": "Internal server error"}), 500
 
 
-# ─────────────────────────────────────────────
-# Run
-# ─────────────────────────────────────────────
-
 if __name__ == "__main__":
-    debug = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
-    app.run(debug=debug, port=5000)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
