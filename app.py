@@ -1,16 +1,14 @@
 """
-app.py — Smart Career Guidance API
+app.py — Smart Career Guidance API (no auth)
 """
 
 import os
 import logging
 from datetime import timedelta
 
-from flask import Flask, request, jsonify, session, send_file
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from functools import wraps
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -31,20 +29,11 @@ logger = logging.getLogger(__name__)
 # ── Flask app ─────────────────────────────────
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "change-me-in-production")
-app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=2)
 app.config["MAX_CONTENT_LENGTH"] = int(
     os.environ.get("MAX_CONTENT_LENGTH_MB", 5)
 ) * 1024 * 1024
 
-is_production = os.environ.get("FLASK_ENV", "production") == "production"
-
-app.config.update(
-    SESSION_COOKIE_SECURE=is_production,
-    SESSION_COOKIE_SAMESITE="None" if is_production else "Lax",
-    SESSION_COOKIE_HTTPONLY=True,
-)
-
-# ── CORS — allow your frontend origins ────────
+# ── CORS ───────────────────────────────────────
 CORS(
     app,
     origins=[
@@ -59,25 +48,23 @@ CORS(
 UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# ── Shared anonymous user ─────────────────────
+# All requests are attributed to this single guest user.
+# The DB row is created on first boot if it doesn't exist.
+GUEST_USER_ID = 1
+GUEST_USERNAME = "Guest"
+
 # ── Initialise DB ─────────────────────────────
 with app.app_context():
     try:
         db.init_db()
+        # Ensure guest user exists (ignore if already present)
+        try:
+            db.create_user(GUEST_USERNAME, "guest@app.local", "no-password")
+        except Exception:
+            pass  # already exists
     except Exception as e:
         logger.error("Could not initialise database: %s", e)
-
-
-# ─────────────────────────────────────────────
-# Auth decorator
-# ─────────────────────────────────────────────
-
-def login_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        if "user_id" not in session:
-            return jsonify({"status": "error", "message": "Unauthorized — please log in"}), 401
-        return f(*args, **kwargs)
-    return decorated
 
 
 # ─────────────────────────────────────────────
@@ -90,82 +77,43 @@ def home():
 
 
 # ─────────────────────────────────────────────
-# Auth routes
+# Stub auth routes (kept so old frontend calls don't 404)
 # ─────────────────────────────────────────────
 
 @app.route("/register", methods=["POST"])
 def register():
-    data = request.get_json()
-    username = data.get("username")
-    email    = data.get("email")
-    password = data.get("password")
-
-    if not username or not email or not password:
-        return jsonify({"status": "error", "message": "All fields are required"}), 400
-
-    if db.email_exists(email):
-        return jsonify({"status": "error", "message": "Email already exists"}), 409
-
-    try:
-        user_id = db.create_user(username, email, generate_password_hash(password))
-    except Exception as e:
-        logger.error("Register DB error: %s", e, exc_info=True)
-        return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
-
-    session.permanent = True
-    session["user_id"]  = user_id
-    session["username"] = username
-
     return jsonify({
         "status": "success",
-        "user": {"id": user_id, "username": username, "email": email}
-    }), 201
+        "user": {"id": GUEST_USER_ID, "username": GUEST_USERNAME, "email": "guest@app.local"}
+    }), 200
 
 
 @app.route("/login", methods=["POST"])
 def login():
-    data     = request.get_json()
-    email    = data.get("email")
-    password = data.get("password")
-
-    user = db.get_user_by_email(email)
-    if user and check_password_hash(user["password_hash"], password):
-        session.permanent = True
-        session["user_id"]   = user["id"]
-        session["username"]  = user["username"]
-        return jsonify({
-            "status": "success",
-            "user": {"id": user["id"], "username": user["username"], "email": user["email"]}
-        })
-
-    return jsonify({"status": "error", "message": "Invalid credentials"}), 401
+    return jsonify({
+        "status": "success",
+        "user": {"id": GUEST_USER_ID, "username": GUEST_USERNAME, "email": "guest@app.local"}
+    })
 
 
 @app.route("/logout", methods=["POST"])
-@login_required
 def logout():
-    session.clear()
-    return jsonify({"status": "success", "message": "Logged out successfully"})
+    return jsonify({"status": "success", "message": "Logged out"})
 
 
 @app.route("/me", methods=["GET"])
 def me():
-    user_id = request.args.get("user_id")
-    if not user_id:
-        return jsonify({"status": "error", "message": "Missing user_id"}), 401
-
-    user = db.get_user_by_id(user_id)
-    if not user:
-        return jsonify({"status": "error", "message": "User not found"}), 404
-    return jsonify({"status": "success", "user": user})
+    return jsonify({
+        "status": "success",
+        "user": {"id": GUEST_USER_ID, "username": GUEST_USERNAME, "email": "guest@app.local"}
+    })
 
 
 # ─────────────────────────────────────────────
-# Resume analysis
+# Resume analysis  (no auth required)
 # ─────────────────────────────────────────────
 
 @app.route("/analyze", methods=["POST"])
-@login_required
 def analyze():
     if "resume" not in request.files:
         return jsonify({
@@ -183,7 +131,7 @@ def analyze():
         return jsonify({"status": "error", "message": "Unsupported file type. Use PDF, DOCX, or TXT"}), 415
 
     filename  = secure_filename(file.filename)
-    save_path = os.path.join(UPLOAD_FOLDER, f"{session['user_id']}_{filename}")
+    save_path = os.path.join(UPLOAD_FOLDER, f"{GUEST_USER_ID}_{filename}")
     file.save(save_path)
     logger.info("Saved upload: %s", save_path)
 
@@ -202,7 +150,7 @@ def analyze():
 
     try:
         analysis_id = db.save_analysis(
-            user_id    = session["user_id"],
+            user_id    = GUEST_USER_ID,
             filename   = filename,
             career     = result["career"],
             skills     = result["skills"],
@@ -228,38 +176,35 @@ def analyze():
 
 
 # ─────────────────────────────────────────────
-# History
+# History  (no auth required)
 # ─────────────────────────────────────────────
 
 @app.route("/history", methods=["GET"])
-@login_required
 def history():
-    records = db.get_user_history(session["user_id"])
+    records = db.get_user_history(GUEST_USER_ID)
     return jsonify({"status": "success", "history": records})
 
 
 @app.route("/history/<int:analysis_id>", methods=["GET"])
-@login_required
 def history_detail(analysis_id: int):
-    record = db.get_analysis_by_id(analysis_id, session["user_id"])
+    record = db.get_analysis_by_id(analysis_id, GUEST_USER_ID)
     if not record:
         return jsonify({"status": "error", "message": "Analysis not found"}), 404
     return jsonify({"status": "success", "analysis": record})
 
 
 # ─────────────────────────────────────────────
-# PDF download
+# PDF download  (no auth required)
 # ─────────────────────────────────────────────
 
 @app.route("/download/<int:analysis_id>", methods=["GET"])
-@login_required
 def download_pdf(analysis_id: int):
-    record = db.get_analysis_by_id(analysis_id, session["user_id"])
+    record = db.get_analysis_by_id(analysis_id, GUEST_USER_ID)
     if not record:
         return jsonify({"status": "error", "message": "Analysis not found"}), 404
 
     pdf_path = generate_pdf_report(
-        username = session["username"],
+        username = GUEST_USERNAME,
         filename = record.get("filename", "resume"),
         career   = record["career"],
         skills   = record["skills"],
