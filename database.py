@@ -1,5 +1,7 @@
 """
-database.py — MySQL using pymysql + environment variables
+database.py — MySQL via pymysql.
+One version only — the mysql-connector pooling version has been removed.
+pymysql works on Railway, Render, and locally.
 """
 
 import os
@@ -144,9 +146,10 @@ def get_user_history(user_id: int, limit: int = 20) -> list:
             rows = cur.fetchall()
     finally:
         conn.close()
+
     for row in rows:
-        row["skills"]     = json.loads(row["skills"])  if row["skills"]  else []
-        row["courses"]    = json.loads(row["courses"]) if row["courses"] else []
+        row["skills"]  = json.loads(row["skills"])  if row["skills"]  else []
+        row["courses"] = json.loads(row["courses"]) if row["courses"] else []
         row["created_at"] = (
             row["created_at"].strftime("%d %b %Y, %I:%M %p")
             if row["created_at"] else ""
