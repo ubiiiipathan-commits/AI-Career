@@ -13,7 +13,7 @@ from werkzeug.utils import secure_filename
 from functools import wraps
 from dotenv import load_dotenv
 
-load_dotenv()  # ← only once (was duplicated before)
+load_dotenv()
 
 # ── Local modules ─────────────────────────────
 import database as db
@@ -36,19 +36,28 @@ app.config["MAX_CONTENT_LENGTH"] = int(
     os.environ.get("MAX_CONTENT_LENGTH_MB", 5)
 ) * 1024 * 1024
 
-# ── FIX: Cookie settings so sessions work cross-origin in production ──
-# Without these, the browser blocks the session cookie on every request
-# after login and every protected route returns 401.
 is_production = os.environ.get("FLASK_ENV", "production") == "production"
 
 app.config.update(
-    SESSION_COOKIE_SECURE=is_production,  # False for localhost
+    SESSION_COOKIE_SECURE=is_production,
     SESSION_COOKIE_SAMESITE="None" if is_production else "Lax",
-    SESSION_COOKIE_HTTPONLY=True
+    SESSION_COOKIE_HTTPONLY=True,
 )
+
+# ── CORS — allow your frontend origins ────────
+CORS(
+    app,
+    origins=[
+        "http://localhost:8080",
+        "http://localhost:5173",
+        "http://localhost:3000",
+        "https://your-frontend-domain.com",   # ← replace with your actual deployed frontend URL
+    ],
+    supports_credentials=True,
+)
+
 UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
 
 # ── Initialise DB ─────────────────────────────
 with app.app_context():
@@ -88,33 +97,38 @@ def home():
 def register():
     data = request.get_json()
     username = data.get("username")
-    email = data.get("email")
+    email    = data.get("email")
     password = data.get("password")
 
     if db.email_exists(email):
         return jsonify({"status": "error", "message": "Email exists"}), 409
 
     user_id = db.create_user(username, email, generate_password_hash(password))
-    
+
     return jsonify({
         "status": "success",
         "user": {"id": user_id, "username": username, "email": email}
-    }), 201 
+    }), 201
+
 
 @app.route("/login", methods=["POST"])
 def login():
-    data = request.get_json()
-    email = data.get("email")
+    data     = request.get_json()
+    email    = data.get("email")
     password = data.get("password")
 
     user = db.get_user_by_email(email)
     if user and check_password_hash(user["password_hash"], password):
+        session.permanent = True
+        session["user_id"]   = user["id"]
+        session["username"]  = user["username"]
         return jsonify({
             "status": "success",
             "user": {"id": user["id"], "username": user["username"], "email": user["email"]}
         })
 
     return jsonify({"status": "error", "message": "Invalid credentials"}), 401
+
 
 @app.route("/logout", methods=["POST"])
 @login_required
@@ -128,8 +142,10 @@ def me():
     user_id = request.args.get("user_id")
     if not user_id:
         return jsonify({"status": "error", "message": "Missing user_id"}), 401
-    
-    user = db.get_user_by_id(user_id) # Assuming this function exists in your db.py
+
+    user = db.get_user_by_id(user_id)
+    if not user:
+        return jsonify({"status": "error", "message": "User not found"}), 404
     return jsonify({"status": "success", "user": user})
 
 
