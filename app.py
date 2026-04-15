@@ -40,24 +40,22 @@ app.config["MAX_CONTENT_LENGTH"] = int(
 # Without these, the browser blocks the session cookie on every request
 # after login and every protected route returns 401.
 is_production = os.environ.get("FLASK_ENV", "development") == "production"
-app.config["SESSION_COOKIE_SECURE"]   = is_production   # HTTPS only in prod
-app.config["SESSION_COOKIE_SAMESITE"] = "None" if is_production else "Lax"
+app.config["SESSION_COOKIE_SECURE"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "None"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 
 UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # ── CORS ──────────────────────────────────────
-CORS(app, supports_credentials=True, origins=[
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://localhost:8080",   
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:8080",  
-    "https://compassai-mu.vercel.app",
-])
-
+CORS(
+    app,
+    supports_credentials=True,
+    origins=[
+        "http://localhost:8080",
+        "https://compassai-mu.vercel.app"
+    ]
+)
 # ── Initialise DB ─────────────────────────────
 with app.app_context():
     try:
