@@ -39,11 +39,13 @@ app.config["MAX_CONTENT_LENGTH"] = int(
 # ── FIX: Cookie settings so sessions work cross-origin in production ──
 # Without these, the browser blocks the session cookie on every request
 # after login and every protected route returns 401.
-is_production = os.environ.get("FLASK_ENV", "development") == "production"
-app.config["SESSION_COOKIE_SECURE"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "None"
-app.config["SESSION_COOKIE_HTTPONLY"] = True
+is_production = os.environ.get("FLASK_ENV", "production") == "production"
 
+app.config.update(
+    SESSION_COOKIE_SECURE=is_production,  # False for localhost
+    SESSION_COOKIE_SAMESITE="None" if is_production else "Lax",
+    SESSION_COOKIE_HTTPONLY=True
+)
 UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
