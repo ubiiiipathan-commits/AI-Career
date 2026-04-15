@@ -51,7 +51,7 @@ CORS(
         "http://localhost:8080",
         "http://localhost:5173",
         "http://localhost:3000",
-        "https://your-frontend-domain.com",  # ← your real frontend URL
+        "https://your-frontend-domain.com",  # ← replace with real URL
     ],
     supports_credentials=True,
 )
@@ -100,10 +100,21 @@ def register():
     email    = data.get("email")
     password = data.get("password")
 
-    if db.email_exists(email):
-        return jsonify({"status": "error", "message": "Email exists"}), 409
+    if not username or not email or not password:
+        return jsonify({"status": "error", "message": "All fields are required"}), 400
 
-    user_id = db.create_user(username, email, generate_password_hash(password))
+    if db.email_exists(email):
+        return jsonify({"status": "error", "message": "Email already exists"}), 409
+
+    try:
+        user_id = db.create_user(username, email, generate_password_hash(password))
+    except Exception as e:
+        logger.error("Register DB error: %s", e, exc_info=True)
+        return jsonify({"status": "error", "message": f"Database error: {str(e)}"}), 500
+
+    session.permanent = True
+    session["user_id"]  = user_id
+    session["username"] = username
 
     return jsonify({
         "status": "success",
