@@ -51,7 +51,7 @@ CORS(
         "http://localhost:8080",
         "http://localhost:5173",
         "http://localhost:3000",
-        "https://your-frontend-domain.com",   # ← replace with your actual deployed frontend URL
+        "https://your-frontend-domain.com",  # ← your real frontend URL
     ],
     supports_credentials=True,
 )
