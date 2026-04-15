@@ -124,18 +124,13 @@ def logout():
 
 
 @app.route("/me", methods=["GET"])
-@login_required
 def me():
-    # FIX: was returning user_id/username flat — now returns a proper user object
-    # matching what AuthContext expects: { user: { id, username, email } }
-    return jsonify({
-        "status": "success",
-        "user": {
-            "id":       session["user_id"],
-            "username": session["username"],
-            "email":    session.get("user_email", ""),
-        }
-    })
+    user_id = request.args.get("user_id")
+    if not user_id:
+        return jsonify({"status": "error", "message": "Missing user_id"}), 401
+    
+    user = db.get_user_by_id(user_id) # Assuming this function exists in your db.py
+    return jsonify({"status": "success", "user": user})
 
 
 # ─────────────────────────────────────────────
